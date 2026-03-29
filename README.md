@@ -1,175 +1,277 @@
-# MAFP Fingerprint Driver
+# MAFP Fingerprint Driver (USB 3274:8012)
 
 **[中文](README_zh.md)** | English
 
-An open-source Linux driver for **MicroarrayTechnology MAFP** fingerprint readers (USB `3274:8012`), enabling fingerprint-based authentication on Linux desktops via `libfprint` and `fprintd`.
+Practical build/install guide for the `MicroarrayTechnology MAFP` fingerprint device (`3274:8012`) on common Linux distributions.
 
-This driver was developed by reverse-engineering the proprietary Windows driver and implements a fully open-source replacement — no vendor binaries or proprietary code are included.
+This repository provides:
+- driver source: `src/microarray.c`
+- libfprint integration patch: `patches/0001-libfprint-add-microarray-3274-8012-driver.patch`
+- full troubleshooting/dev manual: `docs/FINGERPRINT_MAFP_DEV_MANUAL.md`
 
-## Features
+---
 
-- **Fingerprint enrollment** — 6-stage press/lift capture cycle
-- **Fingerprint verification** — 1:1 template matching
-- **Desktop login** — Works with GNOME/KDE PAM authentication and `sudo`
-- **Template storage** — Stores up to 30 fingerprint templates on device flash
-- **Finger-present detection** — Detects when a finger is placed on the sensor
-
-## Supported Hardware
-
-| | |
-|---|---|
-| **USB ID** | `3274:8012` |
-| **Device Name** | MicroarrayTechnology MAFP General Device |
-| **Form Factor** | USB-A nano dongle |
-
-Tested with: **TNP Nano USB Fingerprint Reader** ([Amazon B07DW62XS7](https://www.amazon.com/dp/B07DW62XS7))
-
-> **How to check your device:**
-> ```bash
-> lsusb | grep 3274:8012
-> ```
-
-## Prerequisites
-
-- **OS:** Fedora 43 (tested; see [docs](docs/FINGERPRINT_MAFP_DEV_MANUAL.md) for Debian/Ubuntu, Arch, openSUSE notes)
-- **libfprint** v1.94.x source tree
-- **meson**, **gcc**, **glib2-devel**, **libusb-devel`
-- **fprintd** service
-
-## Quick Start
-
-### 1. Build
-
-Clone the libfprint source and apply the included patch:
+## 1. Confirm Hardware
 
 ```bash
-# Get libfprint source (Fedora)
-rpmdevtools  # ensures you have fedpkg tools
-./scripts/build-fedora-local.sh /path/to/libfprint-v1.94.10
+lsusb | grep 3274:8012
 ```
 
-Or build manually:
+Expected: one line containing `3274:8012`.
+
+---
+
+## 2. Build Matrix
+
+| Distro | Recommended flow |
+|---|---|
+| Fedora | Rebuild distro source package or local build from source tree |
+| Debian / Ubuntu | `apt source libfprint` + patch + build |
+| Arch Linux | Patch upstream source in `PKGBUILD` / local meson build |
+| openSUSE | Patch source + meson build or OBS package |
+
+---
+
+## 3. Common Build Steps (all distros)
+
+Inside a `libfprint` source tree (v1.94.x):
 
 ```bash
-cd /path/to/libfprint-v1.94.10
 patch -p1 < /path/to/mafp-fingerprint-driver/patches/0001-libfprint-add-microarray-3274-8012-driver.patch
 
-meson setup build-microarray \
-  -Ddoc=false -Dgtk-examples=false -Dintrospection=false
+meson setup build-microarray -Ddoc=false -Dgtk-examples=false -Dintrospection=false
 meson compile -C build-microarray
 ```
 
-### 2. Install
+Output library:
+- `build-microarray/libfprint/libfprint-2.so.2.0.0`
+
+---
+
+## 4. Fedora (tested)
+
+### 4.1 Install build dependencies
 
 ```bash
-sudo install -m 0755 \
-  build-microarray/libfprint/libfprint-2.so.2.0.0 \
-  /usr/lib64/libfprint-2.so.2.0.0
+sudo dnf install -y rpmdevtools meson ninja-build gcc git
+sudo dnf builddep -y libfprint
+```
+
+### 4.2 Get source
+
+Option A (RPM source workflow):
+
+```bash
+sudo dnf download --source libfprint
+rpm -ivh libfprint-*.src.rpm
+cd ~/rpmbuild/SOURCES
+```
+
+Option B (existing source tree):
+
+```bash
+cd /tmp/libfprint-src/libfprint-v1.94.10
+```
+
+### 4.3 Build
+
+```bash
+patch -p1 < /path/to/mafp-fingerprint-driver/patches/0001-libfprint-add-microarray-3274-8012-driver.patch
+meson setup build-microarray -Ddoc=false -Dgtk-examples=false -Dintrospection=false
+meson compile -C build-microarray
+```
+
+### 4.4 Install (local override)
+
+```bash
+sudo install -m 0755 build-microarray/libfprint/libfprint-2.so.2.0.0 /usr/lib64/libfprint-2.so.2.0.0
 sudo ldconfig
 sudo systemctl restart fprintd
 ```
 
-### 3. Verify
+### 4.5 Verify
 
 ```bash
-# Check that fprintd sees your device
 fprintd-list $USER
-
-# Verify the correct library is loaded
 pid=$(pgrep -n fprintd)
 grep libfprint /proc/$pid/maps | head
-
-# Check fprintd service status
-systemctl status fprintd
 ```
 
-## Usage
+---
 
-### Enroll a fingerprint
+## 5. Debian / Ubuntu
+
+### 5.1 Install build dependencies
 
 ```bash
-# Enroll with default finger (right index)
-fprintd-enroll
-
-# Enroll a specific finger
-fprintd-enroll -f right-thumb-finger
+sudo apt update
+sudo apt install -y devscripts dpkg-dev meson ninja-build git
+sudo apt build-dep -y libfprint
 ```
 
-You'll be prompted to press and lift your finger **6 times**.
-
-### Verify
+### 5.2 Get source
 
 ```bash
-fprintd-verify
+apt source libfprint
+cd libfprint-*/
 ```
 
-### Configure for sudo / GDM
-
-Once enrolled, fingerprint authentication is automatically available for:
-- `sudo` (via PAM)
-- GNOME login screen (GDM)
-- `polkit` authentication dialogs
-
-## Troubleshooting
-
-### "No driver found for USB device 3274:8012"
-
-The dynamic linker may be loading an old `.bak` file instead of the new library. Remove any backup files:
+### 5.3 Build
 
 ```bash
-sudo rm -f /usr/lib64/libfprint-2.so.2.0.0.bak*
+patch -p1 < /path/to/mafp-fingerprint-driver/patches/0001-libfprint-add-microarray-3274-8012-driver.patch
+meson setup build-microarray -Ddoc=false -Dgtk-examples=false -Dintrospection=false
+meson compile -C build-microarray
+```
+
+### 5.4 Install (local override)
+
+```bash
+sudo install -m 0755 build-microarray/libfprint/libfprint-2.so.2.0.0 /usr/lib/x86_64-linux-gnu/libfprint-2.so.2.0.0
 sudo ldconfig
 sudo systemctl restart fprintd
 ```
 
-### Device not showing up
+### 5.5 Verify
 
 ```bash
-# Verify the device is detected at USB level
-lsusb | grep 3274:8012
-
-# Check udev rules
-ls /lib/udev/rules.d/*fprint*
+fprintd-list $USER
+pid=$(pgrep -n fprintd)
+grep libfprint /proc/$pid/maps | head
 ```
 
-## Project Structure
+---
+
+## 6. Arch Linux
+
+### 6.1 Install dependencies
+
+```bash
+sudo pacman -S --needed base-devel meson ninja pkgconf git glib2 libgusb pixman openssl libusb systemd
+```
+
+### 6.2 Get source
+
+```bash
+git clone --depth=1 --branch v1.94.10 https://gitlab.freedesktop.org/libfprint/libfprint.git
+cd libfprint
+```
+
+### 6.3 Build
+
+```bash
+patch -p1 < /path/to/mafp-fingerprint-driver/patches/0001-libfprint-add-microarray-3274-8012-driver.patch
+meson setup build-microarray -Ddoc=false -Dgtk-examples=false -Dintrospection=false
+meson compile -C build-microarray
+```
+
+### 6.4 Install (local override)
+
+```bash
+sudo install -m 0755 build-microarray/libfprint/libfprint-2.so.2.0.0 /usr/lib/libfprint-2.so.2.0.0
+sudo ldconfig
+sudo systemctl restart fprintd
+```
+
+### 6.5 Verify
+
+```bash
+fprintd-list $USER
+pid=$(pgrep -n fprintd)
+grep libfprint /proc/$pid/maps | head
+```
+
+---
+
+## 7. openSUSE
+
+### 7.1 Install dependencies
+
+```bash
+sudo zypper install -y gcc meson ninja pkgconf-pkg-config git \
+  glib2-devel libgusb-devel pixman-devel libopenssl-devel libusb-1_0-devel
+```
+
+### 7.2 Get source
+
+```bash
+git clone --depth=1 --branch v1.94.10 https://gitlab.freedesktop.org/libfprint/libfprint.git
+cd libfprint
+```
+
+### 7.3 Build
+
+```bash
+patch -p1 < /path/to/mafp-fingerprint-driver/patches/0001-libfprint-add-microarray-3274-8012-driver.patch
+meson setup build-microarray -Ddoc=false -Dgtk-examples=false -Dintrospection=false
+meson compile -C build-microarray
+```
+
+### 7.4 Install (local override)
+
+```bash
+sudo install -m 0755 build-microarray/libfprint/libfprint-2.so.2.0.0 /usr/lib64/libfprint-2.so.2.0.0
+sudo ldconfig
+sudo systemctl restart fprintd
+```
+
+### 7.5 Verify
+
+```bash
+fprintd-list $USER
+pid=$(pgrep -n fprintd)
+grep libfprint /proc/$pid/maps | head
+```
+
+---
+
+## 8. Troubleshooting
+
+### 8.1 `No driver found for USB device 3274:8012`
+
+Check actual loaded library:
+
+```bash
+pid=$(pgrep -n fprintd)
+grep libfprint /proc/$pid/maps | head
+```
+
+If a backup file like `...libfprint-2.so.2.0.0.bak...` is loaded, remove backups from system library directory, then:
+
+```bash
+sudo ldconfig
+sudo systemctl restart fprintd
+```
+
+### 8.2 `No devices available`
+
+```bash
+lsusb | grep 3274:8012
+systemctl --no-pager --full status fprintd
+journalctl -u fprintd -n 120 --no-pager
+```
+
+---
+
+## 9. Project Layout
 
 ```
 mafp-fingerprint-driver/
 ├── src/
-│   └── microarray.c              # Driver source (~770 lines)
+│   └── microarray.c
 ├── patches/
 │   └── 0001-libfprint-add-microarray-3274-8012-driver.patch
 ├── scripts/
-│   └── build-fedora-local.sh     # Automated build script for Fedora
+│   └── build-fedora-local.sh
 ├── docs/
-│   ├── FINGERPRINT_MAFP_DEV_MANUAL.md   # Full development manual
-│   └── upstream/                         # Reverse engineering notes & references
-│       ├── CHANGELOG.upstream.md
-│       ├── README.upstream.md
-│       ├── fingerprint-driver-re.md
-│       ├── fingerprint-reader-setup.md
-│       └── reverse-engineering.md
-├── LICENSE                         # MIT License
+│   ├── FINGERPRINT_MAFP_DEV_MANUAL.md
+│   └── upstream/
 └── README.md
 ```
 
-## Cross-Distro Packaging
+---
 
-See [`docs/FINGERPRINT_MAFP_DEV_MANUAL.md`](docs/FINGERPRINT_MAFP_DEV_MANUAL.md) for packaging guides:
-
-- **Debian / Ubuntu** — .deb packaging
-- **Arch Linux** — AUR PKGBUILD
-- **openSUSE** — OBS build service
-
-## Upstream Contribution
-
-Steps for submitting this driver to the official `libfprint` project are documented in section 19 of the [development manual](docs/FINGERPRINT_MAFP_DEV_MANUAL.md).
-
-## License
+## 10. License
 
 This project is released under the [MIT License](LICENSE).
 
-## Acknowledgments
-
-This driver was reverse-engineered from the `MicroarrayFingerprintDevice.dll` Windows driver (v9.47.11.214) for interoperability purposes under applicable law (DMCA §1201(f) / EU Software Directive Art. 6). No proprietary vendor code or binaries are included.
