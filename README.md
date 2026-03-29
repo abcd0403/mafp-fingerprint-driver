@@ -35,7 +35,7 @@ This project patches the upstream [libfprint](https://gitlab.freedesktop.org/lib
 
 **Authentication chain:**
 ```
-GNOME / sudo / polkit  →  PAM (pam_fprintd)  →  fprintd  →  libfprint  →  USB device
+GNOME / sudo / polkit  ->  PAM (pam_fprintd)  ->  fprintd  ->  libfprint  ->  USB device
 ```
 
 ---
@@ -48,7 +48,7 @@ GNOME / sudo / polkit  →  PAM (pam_fprintd)  →  fprintd  →  libfprint  →
 <summary>Fedora</summary>
 
 ```bash
-sudo dnf install -y rpmdevtools meson ninja-build gcc git
+sudo dnf install -y rpmdevtools meson ninja-build gcc git cpio
 sudo dnf builddep -y libfprint
 ```
 </details>
@@ -62,7 +62,7 @@ sudo apt install -y devscripts dpkg-dev meson ninja-build git
 sudo apt build-dep -y libfprint
 ```
 
-> **Note:** If `apt build-dep` fails with version conflicts, you may need to enable `deb-src` repositories. On Ubuntu, edit `/etc/apt/sources.list.d/ubuntu.sources` and ensure `Types: deb deb-src`. If base library versions are out of sync (e.g., `libpcre2-8-0` installed version newer than available `-dev` package), downgrade with `sudo apt install --allow-downgrades <package>=<version>` first.
+> **Note:** If `apt build-dep` fails with version conflicts, you may need to enable `deb-src` repositories. On Ubuntu, edit `/etc/apt/sources.list.d/ubuntu.sources` and ensure `Types: deb deb-src`.
 </details>
 
 ### 2. Get libfprint source
@@ -73,7 +73,13 @@ sudo apt build-dep -y libfprint
 ```bash
 sudo dnf download --source libfprint
 rpm -ivh libfprint-*.src.rpm
-cd ~/rpmbuild/SOURCES
+
+mkdir -p /tmp/libfprint-src
+cd /tmp/libfprint-src
+rpm2cpio ~/rpmbuild/SRPMS/libfprint-*.src.rpm | cpio -idmv
+
+tar -xf libfprint-v*.tar.gz
+cd libfprint-v*/
 ```
 </details>
 
@@ -99,18 +105,35 @@ Output: `build-microarray/libfprint/libfprint-2.so.2.0.0`
 
 ### 4. Install and verify
 
-```bash
-# Backup original, then install (adjust library path for your distro)
-sudo cp /usr/lib/x86_64-linux-gnu/libfprint-2.so.2.0.0 /usr/lib/x86_64-linux-gnu/libfprint-2.so.2.0.0.orig
-sudo install -m 0755 build-microarray/libfprint/libfprint-2.so.2.0.0 /usr/lib/x86_64-linux-gnu/libfprint-2.so.2.0.0
+#### Fedora
 
-# WARNING: move backups OUT of the system library directory!
-sudo mv /usr/lib/x86_64-linux-gnu/libfprint-2.so.2.0.0.orig /opt/libfprint-backup/
+```bash
+# Backup original
+sudo cp /usr/lib64/libfprint-2.so.2.0.0 /usr/lib64/libfprint-2.so.2.0.0.orig
+
+# Install new build
+sudo install -m 0755 build-microarray/libfprint/libfprint-2.so.2.0.0 /usr/lib64/libfprint-2.so.2.0.0
+
+# IMPORTANT: move backup OUT of system library path
+sudo mkdir -p /opt/libfprint-backup
+sudo mv /usr/lib64/libfprint-2.so.2.0.0.orig /opt/libfprint-backup/
 
 sudo ldconfig
 sudo systemctl restart fprintd
 
 # Verify
+fprintd-list $USER
+```
+
+#### Debian / Ubuntu
+
+```bash
+sudo cp /usr/lib/x86_64-linux-gnu/libfprint-2.so.2.0.0 /usr/lib/x86_64-linux-gnu/libfprint-2.so.2.0.0.orig
+sudo install -m 0755 build-microarray/libfprint/libfprint-2.so.2.0.0 /usr/lib/x86_64-linux-gnu/libfprint-2.so.2.0.0
+sudo mkdir -p /opt/libfprint-backup
+sudo mv /usr/lib/x86_64-linux-gnu/libfprint-2.so.2.0.0.orig /opt/libfprint-backup/
+sudo ldconfig
+sudo systemctl restart fprintd
 fprintd-list $USER
 ```
 
@@ -164,12 +187,21 @@ A one-shot build script is provided for Fedora:
 The most common cause is `fprintd` loading a stale backup library instead of your new build.
 
 ```bash
-# Check which library fprintd actually loaded
 pid=$(pgrep -n fprintd)
 grep libfprint /proc/$pid/maps | head
 ```
 
 If you see `.bak` or `.orig` files being loaded, move them out of the system library directory:
+
+#### Fedora
+
+```bash
+sudo mv /usr/lib64/libfprint-2.so.2.0.0.bak /opt/libfprint-backup/
+sudo ldconfig
+sudo systemctl restart fprintd
+```
+
+#### Debian / Ubuntu
 
 ```bash
 sudo mv /usr/lib/x86_64-linux-gnu/libfprint-2.so.2.0.0.bak /opt/libfprint-backup/
@@ -192,9 +224,9 @@ journalctl -u fprintd -n 120 --no-pager
 
 ### `Patch fails to apply`
 
-The included patch was generated against libfprint **v1.94.10**. If your distro ships a different version (e.g., `1.94.7+tod1`), apply the changes manually:
+The included patch was generated against libfprint **v1.94.10**. If your distro ships a different version, apply the changes manually:
 
-1. **`meson.build`** — add `'microarray'` to `default_drivers` and `spi_drivers` lists
+1. **`meson.build`** — add `'microarray'` to `default_drivers` and `endian_independent_drivers` lists
 2. **`libfprint/meson.build`** — add driver source mapping:
    ```meson
    'microarray' :
@@ -203,6 +235,8 @@ The included patch was generated against libfprint **v1.94.10**. If your distro 
 3. **`libfprint/drivers/microarray/microarray.c`** — copy from `src/microarray.c` in this repo
 
 ### Health check after any change
+
+#### Fedora
 
 ```bash
 # Device visibility
@@ -215,84 +249,43 @@ systemctl --no-pager --full status fprintd
 pid=$(pgrep -n fprintd)
 grep libfprint /proc/$pid/maps | head
 
-# Verify build-id matches your compiled library
-readelf -n /usr/lib/x86_64-linux-gnu/libfprint-2.so.2.0.0 | sed -n '/Build ID/,+1p'
+# Build-id
+readelf -n /usr/lib64/libfprint-2.so.2.0.0 | sed -n '/Build ID/,+1p'
 ```
 
-### Rollback
+#### Debian / Ubuntu
 
 ```bash
-sudo systemctl stop fprintd
-sudo cp -a /opt/libfprint-backup/libfprint-2.so.2.0.0.orig /usr/lib/x86_64-linux-gnu/libfprint-2.so.2.0.0
-sudo ldconfig
-sudo systemctl start fprintd
+fprintd-list $USER
+systemctl --no-pager --full status fprintd
+pid=$(pgrep -n fprintd)
+grep libfprint /proc/$pid/maps | head
+readelf -n /usr/lib/x86_64-linux-gnu/libfprint-2.so.2.0.0 | sed -n '/Build ID/,+1p'
 ```
 
 ---
 
-## Project Layout
+## Project Structure
 
 ```
 mafp-fingerprint-driver/
 ├── src/
-│   └── microarray.c              # Driver source (libfprint integration)
+│   └── microarray.c
 ├── patches/
 │   └── 0001-libfprint-add-microarray-3274-8012-driver.patch
 ├── scripts/
-│   └── build-fedora-local.sh     # Automated build script for Fedora
+│   └── build-fedora-local.sh
 ├── docs/
-│   ├── FINGERPRINT_MAFP_DEV_MANUAL.md   # Developer operations manual
+│   ├── FINGERPRINT_MAFP_DEV_MANUAL.md
 │   └── upstream/
-│       ├── fingerprint-driver-re.md     # Protocol reverse engineering notes
+│       ├── CHANGELOG.upstream.md
 │       ├── README.upstream.md
-│       └── CHANGELOG.upstream.md
+│       ├── fingerprint-driver-re.md
+│       ├── fingerprint-reader-setup.md
+│       └── reverse-engineering.md
 ├── LICENSE
-├── README.md
-└── README_zh.md
+└── README.md
 ```
-
----
-
-## Known Limitations
-
-- **All templates erased on overflow**: if all 30 FID slots are occupied, enrolling a new finger erases all stored templates (CMD 0x0D)
-- **No interrupt endpoint**: the driver uses polling instead of the interrupt EP (0x82) for finger detection
-- **No 1:N search**: only 1:1 verification against a specific FID slot is implemented
-- **Not upstream**: this is a third-party patch; distro package updates will overwrite your custom library
-
----
-
-## Packaging for Distribution
-
-For a more durable installation, consider building a proper package instead of a raw library replacement:
-
-| Distro | Format | Notes |
-|---|---|---|
-| Fedora | RPM / COPR | `Release: 1%{?dist}.mafp1` |
-| Debian / Ubuntu | .deb / PPA | `1.94.10-1+mafp1` |
-
-See [`docs/FINGERPRINT_MAFP_DEV_MANUAL.md`](docs/FINGERPRINT_MAFP_DEV_MANUAL.md) for detailed packaging instructions.
-
----
-
-## Upstream Contribution
-
-The driver is a candidate for submission to the [libfprint upstream repository](https://gitlab.freedesktop.org/libfprint/libfprint). Key requirements:
-
-- Clean commit history split into: build system changes, driver implementation, tests
-- Stable error-path recovery (no dead loops or crashes on wrong finger)
-- Protocol documentation (commands, responses, status codes)
-- No vendor binaries or proprietary shims
-
----
-
-## References
-
-- [libfprint source](https://gitlab.freedesktop.org/libfprint/libfprint)
-- [libfprint driver writing guide](https://fprint.freedesktop.org/libfprint-dev/writing-a-driver.html)
-- [FPC/GROW fingerprint sensor protocol](https://www.waveshare.com/wiki/UART_Fingerprint_Sensor_(C))
-
----
 
 ## License
 
