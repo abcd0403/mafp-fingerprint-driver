@@ -65,24 +65,6 @@ sudo apt build-dep -y libfprint
 > **Note:** If `apt build-dep` fails with version conflicts, you may need to enable `deb-src` repositories. On Ubuntu, edit `/etc/apt/sources.list.d/ubuntu.sources` and ensure `Types: deb deb-src`. If base library versions are out of sync (e.g., `libpcre2-8-0` installed version newer than available `-dev` package), downgrade with `sudo apt install --allow-downgrades <package>=<version>` first.
 </details>
 
-<details>
-<summary>Arch Linux</summary>
-
-```bash
-sudo pacman -S --needed base-devel meson ninja pkgconf git \
-  glib2 libgusb pixman openssl libusb systemd
-```
-</details>
-
-<details>
-<summary>openSUSE</summary>
-
-```bash
-sudo zypper install -y gcc meson ninja pkgconf-pkg-config git \
-  glib2-devel libgusb-devel pixman-devel libopenssl-devel libusb-1_0-devel
-```
-</details>
-
 ### 2. Get libfprint source
 
 <details>
@@ -101,16 +83,6 @@ cd ~/rpmbuild/SOURCES
 ```bash
 apt source libfprint
 cd libfprint-*/
-```
-</details>
-
-<details>
-<summary>Arch / openSUSE (upstream git)</summary>
-
-```bash
-git clone --depth=1 --branch v1.94.10 \
-  https://gitlab.freedesktop.org/libfprint/libfprint.git
-cd libfprint
 ```
 </details>
 
@@ -172,8 +144,6 @@ fprintd-verify $USER
 |---|---|
 | Fedora | `/usr/lib64/libfprint-2.so.2.0.0` |
 | Debian / Ubuntu | `/usr/lib/x86_64-linux-gnu/libfprint-2.so.2.0.0` |
-| Arch Linux | `/usr/lib/libfprint-2.so.2.0.0` |
-| openSUSE | `/usr/lib64/libfprint-2.so.2.0.0` |
 
 ---
 
@@ -300,8 +270,6 @@ For a more durable installation, consider building a proper package instead of a
 |---|---|---|
 | Fedora | RPM / COPR | `Release: 1%{?dist}.mafp1` |
 | Debian / Ubuntu | .deb / PPA | `1.94.10-1+mafp1` |
-| Arch Linux | PKGBUILD / AUR | `provides=('libfprint')`, `conflicts=('libfprint')` |
-| openSUSE | OBS | Branch package, add patch to spec |
 
 See [`docs/FINGERPRINT_MAFP_DEV_MANUAL.md`](docs/FINGERPRINT_MAFP_DEV_MANUAL.md) for detailed packaging instructions.
 

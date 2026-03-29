@@ -65,24 +65,6 @@ sudo apt build-dep -y libfprint
 > **注意：** 如果 `apt build-dep` 因版本冲突失败，可能需要启用 `deb-src` 源。在 Ubuntu 上，编辑 `/etc/apt/sources.list.d/ubuntu.sources`，确保 `Types` 行包含 `deb-src`。如果基础库版本不同步（例如 `libpcre2-8-0` 已安装版本高于可用的 `-dev` 包），先用 `sudo apt install --allow-downgrades <包名>=<版本>` 降级。
 </details>
 
-<details>
-<summary>Arch Linux</summary>
-
-```bash
-sudo pacman -S --needed base-devel meson ninja pkgconf git \
-  glib2 libgusb pixman openssl libusb systemd
-```
-</details>
-
-<details>
-<summary>openSUSE</summary>
-
-```bash
-sudo zypper install -y gcc meson ninja pkgconf-pkg-config git \
-  glib2-devel libgusb-devel pixman-devel libopenssl-devel libusb-1_0-devel
-```
-</details>
-
 ### 2. 获取 libfprint 源码
 
 <details>
@@ -101,16 +83,6 @@ cd ~/rpmbuild/SOURCES
 ```bash
 apt source libfprint
 cd libfprint-*/
-```
-</details>
-
-<details>
-<summary>Arch / openSUSE（上游 git）</summary>
-
-```bash
-git clone --depth=1 --branch v1.94.10 \
-  https://gitlab.freedesktop.org/libfprint/libfprint.git
-cd libfprint
 ```
 </details>
 
@@ -172,8 +144,6 @@ fprintd-verify $USER
 |---|---|
 | Fedora | `/usr/lib64/libfprint-2.so.2.0.0` |
 | Debian / Ubuntu | `/usr/lib/x86_64-linux-gnu/libfprint-2.so.2.0.0` |
-| Arch Linux | `/usr/lib/libfprint-2.so.2.0.0` |
-| openSUSE | `/usr/lib64/libfprint-2.so.2.0.0` |
 
 ---
 
@@ -300,8 +270,6 @@ mafp-fingerprint-driver/
 |---|---|---|
 | Fedora | RPM / COPR | `Release: 1%{?dist}.mafp1` |
 | Debian / Ubuntu | .deb / PPA | `1.94.10-1+mafp1` |
-| Arch Linux | PKGBUILD / AUR | `provides=('libfprint')`，`conflicts=('libfprint')` |
-| openSUSE | OBS | 分支包，在 spec 中添加补丁 |
 
 详细的打包说明请参见 [`docs/FINGERPRINT_MAFP_DEV_MANUAL.md`](docs/FINGERPRINT_MAFP_DEV_MANUAL.md)。
 
