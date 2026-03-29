@@ -35,7 +35,7 @@
 
 **认证链路：**
 ```
-GNOME / sudo / polkit  →  PAM (pam_fprintd)  →  fprintd  →  libfprint  →  USB 设备
+GNOME / sudo / polkit  ->  PAM (pam_fprintd)  ->  fprintd  ->  libfprint  ->  USB 设备
 ```
 
 ---
@@ -48,7 +48,7 @@ GNOME / sudo / polkit  →  PAM (pam_fprintd)  →  fprintd  →  libfprint  →
 <summary>Fedora</summary>
 
 ```bash
-sudo dnf install -y rpmdevtools meson ninja-build gcc git
+sudo dnf install -y rpmdevtools meson ninja-build gcc git cpio
 sudo dnf builddep -y libfprint
 ```
 </details>
@@ -62,7 +62,7 @@ sudo apt install -y devscripts dpkg-dev meson ninja-build git
 sudo apt build-dep -y libfprint
 ```
 
-> **注意：** 如果 `apt build-dep` 因版本冲突失败，可能需要启用 `deb-src` 源。在 Ubuntu 上，编辑 `/etc/apt/sources.list.d/ubuntu.sources`，确保 `Types` 行包含 `deb-src`。如果基础库版本不同步（例如 `libpcre2-8-0` 已安装版本高于可用的 `-dev` 包），先用 `sudo apt install --allow-downgrades <包名>=<版本>` 降级。
+> **注意：** 如果 `apt build-dep` 因版本冲突失败，可能需要启用 `deb-src` 源。在 Ubuntu 上，编辑 `/etc/apt/sources.list.d/ubuntu.sources`，确保 `Types` 行包含 `deb-src`。
 </details>
 
 ### 2. 获取 libfprint 源码
@@ -73,7 +73,13 @@ sudo apt build-dep -y libfprint
 ```bash
 sudo dnf download --source libfprint
 rpm -ivh libfprint-*.src.rpm
-cd ~/rpmbuild/SOURCES
+
+mkdir -p /tmp/libfprint-src
+cd /tmp/libfprint-src
+rpm2cpio ~/rpmbuild/SRPMS/libfprint-*.src.rpm | cpio -idmv
+
+tar -xf libfprint-v*.tar.gz
+cd libfprint-v*/
 ```
 </details>
 
@@ -99,18 +105,35 @@ meson compile -C build-microarray
 
 ### 4. 安装并验证
 
-```bash
-# 备份原库，然后安装（根据你的发行版调整库路径）
-sudo cp /usr/lib/x86_64-linux-gnu/libfprint-2.so.2.0.0 /usr/lib/x86_64-linux-gnu/libfprint-2.so.2.0.0.orig
-sudo install -m 0755 build-microarray/libfprint/libfprint-2.so.2.0.0 /usr/lib/x86_64-linux-gnu/libfprint-2.so.2.0.0
+#### Fedora
 
-# 警告：将备份移出系统库目录！
-sudo mv /usr/lib/x86_64-linux-gnu/libfprint-2.so.2.0.0.orig /opt/libfprint-backup/
+```bash
+# 备份原库
+sudo cp /usr/lib64/libfprint-2.so.2.0.0 /usr/lib64/libfprint-2.so.2.0.0.orig
+
+# 安装新编译的库
+sudo install -m 0755 build-microarray/libfprint/libfprint-2.so.2.0.0 /usr/lib64/libfprint-2.so.2.0.0
+
+# 重要：将备份移出系统库目录！
+sudo mkdir -p /opt/libfprint-backup
+sudo mv /usr/lib64/libfprint-2.so.2.0.0.orig /opt/libfprint-backup/
 
 sudo ldconfig
 sudo systemctl restart fprintd
 
 # 验证
+fprintd-list $USER
+```
+
+#### Debian / Ubuntu
+
+```bash
+sudo cp /usr/lib/x86_64-linux-gnu/libfprint-2.so.2.0.0 /usr/lib/x86_64-linux-gnu/libfprint-2.so.2.0.0.orig
+sudo install -m 0755 build-microarray/libfprint/libfprint-2.so.2.0.0 /usr/lib/x86_64-linux-gnu/libfprint-2.so.2.0.0
+sudo mkdir -p /opt/libfprint-backup
+sudo mv /usr/lib/x86_64-linux-gnu/libfprint-2.so.2.0.0.orig /opt/libfprint-backup/
+sudo ldconfig
+sudo systemctl restart fprintd
 fprintd-list $USER
 ```
 
@@ -164,12 +187,21 @@ fprintd-verify $USER
 最常见的原因是 `fprintd` 加载了旧的备份库而非你新编译的版本。
 
 ```bash
-# 检查 fprintd 实际加载了哪个库
 pid=$(pgrep -n fprintd)
 grep libfprint /proc/$pid/maps | head
 ```
 
 如果看到加载了 `.bak` 或 `.orig` 文件，将它们移出系统库目录：
+
+#### Fedora
+
+```bash
+sudo mv /usr/lib64/libfprint-2.so.2.0.0.bak /opt/libfprint-backup/
+sudo ldconfig
+sudo systemctl restart fprintd
+```
+
+#### Debian / Ubuntu
 
 ```bash
 sudo mv /usr/lib/x86_64-linux-gnu/libfprint-2.so.2.0.0.bak /opt/libfprint-backup/
@@ -192,9 +224,9 @@ journalctl -u fprintd -n 120 --no-pager
 
 ### 补丁无法应用
 
-所附补丁基于 libfprint **v1.94.10** 生成。如果你的发行版使用了不同版本（如 `1.94.7+tod1`），请手动应用修改：
+所附补丁基于 libfprint **v1.94.10** 生成。如果你的发行版使用了不同版本，请手动应用修改：
 
-1. **`meson.build`** — 在 `default_drivers` 和 `spi_drivers` 列表中添加 `'microarray'`
+1. **`meson.build`** — 在 `default_drivers` 和 `endian_independent_drivers` 列表中添加 `'microarray'`
 2. **`libfprint/meson.build`** — 添加驱动源码映射：
    ```meson
    'microarray' :
@@ -203,6 +235,8 @@ journalctl -u fprintd -n 120 --no-pager
 3. **`libfprint/drivers/microarray/microarray.c`** — 从本仓库的 `src/microarray.c` 复制
 
 ### 每次修改后的健康检查
+
+#### Fedora
 
 ```bash
 # 设备可见性
@@ -215,17 +249,18 @@ systemctl --no-pager --full status fprintd
 pid=$(pgrep -n fprintd)
 grep libfprint /proc/$pid/maps | head
 
-# 验证 build-id 是否匹配你编译的库
-readelf -n /usr/lib/x86_64-linux-gnu/libfprint-2.so.2.0.0 | sed -n '/Build ID/,+1p'
+# Build-id
+readelf -n /usr/lib64/libfprint-2.so.2.0.0 | sed -n '/Build ID/,+1p'
 ```
 
-### 回滚
+#### Debian / Ubuntu
 
 ```bash
-sudo systemctl stop fprintd
-sudo cp -a /opt/libfprint-backup/libfprint-2.so.2.0.0.orig /usr/lib/x86_64-linux-gnu/libfprint-2.so.2.0.0
-sudo ldconfig
-sudo systemctl start fprintd
+fprintd-list $USER
+systemctl --no-pager --full status fprintd
+pid=$(pgrep -n fprintd)
+grep libfprint /proc/$pid/maps | head
+readelf -n /usr/lib/x86_64-linux-gnu/libfprint-2.so.2.0.0 | sed -n '/Build ID/,+1p'
 ```
 
 ---
@@ -235,64 +270,22 @@ sudo systemctl start fprintd
 ```
 mafp-fingerprint-driver/
 ├── src/
-│   └── microarray.c              # 驱动源码（libfprint 集成）
+│   └── microarray.c
 ├── patches/
 │   └── 0001-libfprint-add-microarray-3274-8012-driver.patch
 ├── scripts/
-│   └── build-fedora-local.sh     # Fedora 自动化构建脚本
+│   └── build-fedora-local.sh
 ├── docs/
-│   ├── FINGERPRINT_MAFP_DEV_MANUAL.md   # 开发运维手册
+│   ├── FINGERPRINT_MAFP_DEV_MANUAL.md
 │   └── upstream/
-│       ├── fingerprint-driver-re.md     # 协议逆向工程笔记
+│       ├── CHANGELOG.upstream.md
 │       ├── README.upstream.md
-│       └── CHANGELOG.upstream.md
+│       ├── fingerprint-driver-re.md
+│       ├── fingerprint-reader-setup.md
+│       └── reverse-engineering.md
 ├── LICENSE
-├── README.md
-└── README_zh.md
+└── README.md
 ```
-
----
-
-## 已知限制
-
-- **模板溢出时全量擦除**：当 30 个 FID 槽位全部占满时，录入新手指会擦除所有已存储模板（CMD 0x0D）
-- **未使用中断端点**：驱动使用轮询方式而非中断端点（EP 0x82）检测手指
-- **不支持 1:N 搜索**：仅实现了针对特定 FID 槽位的 1:1 验证
-- **非上游版本**：这是第三方补丁；发行版包更新会覆盖你自定义的库
-
----
-
-## 发行版打包
-
-为了更持久地安装，建议构建正式包而非直接替换库文件：
-
-| 发行版 | 格式 | 备注 |
-|---|---|---|
-| Fedora | RPM / COPR | `Release: 1%{?dist}.mafp1` |
-| Debian / Ubuntu | .deb / PPA | `1.94.10-1+mafp1` |
-
-详细的打包说明请参见 [`docs/FINGERPRINT_MAFP_DEV_MANUAL.md`](docs/FINGERPRINT_MAFP_DEV_MANUAL.md)。
-
----
-
-## 贡献到上游
-
-该驱动有潜力提交到 [libfprint 上游仓库](https://gitlab.freedesktop.org/libfprint/libfprint)。关键要求：
-
-- 干净的提交历史，拆分为：构建系统修改、驱动实现、测试
-- 稳定的错误路径恢复（错误手指时不会死循环或崩溃）
-- 协议文档（命令、响应、状态码）
-- 不包含厂商二进制文件或专有 shim
-
----
-
-## 参考资料
-
-- [libfprint 源码](https://gitlab.freedesktop.org/libfprint/libfprint)
-- [libfprint 驱动编写指南](https://fprint.freedesktop.org/libfprint-dev/writing-a-driver.html)
-- [FPC/GROW 指纹传感器协议](https://www.waveshare.com/wiki/UART_Fingerprint_Sensor_(C))
-
----
 
 ## 许可证
 
