@@ -16,6 +16,8 @@
 
 ## 支持的硬件
 
+<p align="center"><img src="docs/images/mafp-device.jpg" alt="MAFP 指纹扫描器" width="320"></p>
+
 | | |
 |---|---|
 | **USB ID** | `3274:8012` |
