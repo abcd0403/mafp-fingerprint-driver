@@ -16,6 +16,8 @@ The driver was reverse-engineered from the Windows WBDI driver (`MicroarrayFinge
 
 ## Supported Hardware
 
+<p align="center"><img src="docs/images/mafp-device.jpg" alt="MAFP fingerprint scanner" width="320"></p>
+
 | | |
 |---|---|
 | **USB ID** | `3274:8012` |
